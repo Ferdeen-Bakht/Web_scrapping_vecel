@@ -8,8 +8,8 @@ import os
 
 app = Flask(__name__)
 
-# Store data for preview
 last_scraped_content = {}
+
 
 def scrape_website(base_url):
     global last_scraped_content
@@ -22,7 +22,7 @@ def scrape_website(base_url):
         "failed_links": []
     }
 
-    # Fetch base page
+    # Fetch base URL
     try:
         response = requests.get(base_url, timeout=10)
         response.raise_for_status()
@@ -34,7 +34,6 @@ def scrape_website(base_url):
     except:
         return None, {"error": "Failed to parse HTML"}
 
-    # Find nav links
     nav_links = []
     navbars = tree.xpath('//nav | //ul[contains(@class,"nav")] | //div[contains(@class,"nav")]')
 
@@ -55,25 +54,25 @@ def scrape_website(base_url):
 
     all_content = {}
 
-    # Scrape each link
+    # Scrape all nav pages
     for link in nav_links:
         try:
             res = requests.get(link, timeout=10)
             res.raise_for_status()
             page_tree = html.fromstring(res.content)
 
-            # Remove unnecessary tags
+            # Remove unwanted tags
             for bad in page_tree.xpath('//script | //style | //noscript | //meta | //footer | //header'):
                 try:
                     bad.getparent().remove(bad)
                 except:
                     pass
 
-            # Page title
+            # Title
             title = page_tree.xpath('//title/text()')
             title = title[0].strip() if title else "No title"
 
-            # Visible text
+            # Extract text
             visible = []
             for el in page_tree.xpath('//body//*[not(self::script or self::style)]/text()'):
                 text = el.strip()
@@ -96,10 +95,9 @@ def scrape_website(base_url):
 
     last_scraped_content = all_content
 
-    # ===========================
-    #     CREATE DOCX FILE
-    # ===========================
-
+    # ==========================
+    #   CREATE DOCX (No styling)
+    # ==========================
     try:
         doc = Document()
 
@@ -110,28 +108,31 @@ def scrape_website(base_url):
         section.right_margin = Inches(0.4)
         section.top_margin = Inches(0.4)
         section.bottom_margin = Inches(0.4)
-
         section._sectPr.xpath('./w:cols')[0].set('num', '3')
 
-        # Document title — Normal style only
-        p = doc.add_paragraph("Scraped Website Content")
-        p.style = doc.styles["Normal"]
-        for run in p.runs:
-            run.font.size = Pt(10)
-            run.bold = True
-
-        # Add content
         for _, data in all_content.items():
-            t = doc.add_paragraph(data["title"])
-            t.style = doc.styles["Normal"]
-            for run in t.runs:
-                run.font.size = Pt(8)
-                run.bold = True
 
-            b = doc.add_paragraph(data["text"])
-            b.style = doc.styles["Normal"]
-            for run in b.runs:
+            # ---- Heading (plain, not bold, no spacing) ----
+            heading = doc.add_paragraph(data["title"])
+            heading.style = doc.styles["Normal"]
+            heading.paragraph_format.space_before = Pt(0)
+            heading.paragraph_format.space_after = Pt(0)
+            heading.paragraph_format.line_spacing = 1
+
+            for run in heading.runs:
                 run.font.size = Pt(8)
+                run.bold = False
+
+            # ---- Body text ----
+            body = doc.add_paragraph(data["text"])
+            body.style = doc.styles["Normal"]
+            body.paragraph_format.space_before = Pt(0)
+            body.paragraph_format.space_after = Pt(0)
+            body.paragraph_format.line_spacing = 1
+
+            for run in body.runs:
+                run.font.size = Pt(8)
+                run.bold = False
 
         output_path = "/tmp/scraped_content.docx"
         doc.save(output_path)
@@ -147,7 +148,7 @@ def index():
     if request.method == "POST":
         url = request.form.get("url")
         if not url:
-            return render_template("index.html", message="Please enter a URL")
+            return render_template("index.html", message="Please enter a valid URL")
 
         result, stats = scrape_website(url)
 
